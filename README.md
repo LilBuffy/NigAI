@@ -2,7 +2,7 @@
 
 A fucking **AI chatbot** built with **PHP, HTML, CSS, and JavaScript**, I made this because because because? 'cause y not..?
 
-The chatbot itself is working, maybe? **The UI just needed to stop looking like shit.** 💀
+The chatbot itself is working, maybe? **The UI just needed to stop looking like shit.**
 
 ## 🟢 Project Status
 
