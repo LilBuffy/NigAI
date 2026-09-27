@@ -1,86 +1,41 @@
-# 🤖 Nigai Chatbot
+# Nigai Chatbot
 
-A fucking **AI chatbot** built with **PHP, HTML, CSS, and JavaScript**, I made this because because because? 'cause y not..?
+A fucking AI chatbot built with **PHP, HTML, CSS, and JavaScript**. Ginawa ko 'to kasi apparently hindi sapat na gumagamit lang ako ng AI, kailangan gumawa pa ako ng sarili kong AI chatbot like a fucking genius. The actual chatbot connects to an external AI API, sends messages through the configured API, then displays the AI responses back in the interface. Basically: **YOU → NIGAI → API → AI → NIGAI → YOU.** Yung API ang bahala sa brain work, ako ang gumawa ng katawan. Simple shit.
 
-The chatbot itself is working, maybe? **The UI just needed to stop looking like shit.**
+**Project Status:** ACTIVE / STILL ALIVE BUT ABANDONED
 
-## 🟢 Project Status
+**CLICK ME:** http://nigai.ct.ws/
 
-**ACTIVE / STILL ALIVE BUT ABANDONED**
+**WARNING:** Your antivirus or browser security might scream that the website looks dangerous. Relax, pero huwag ka rin maging tanga at blindly trust random websites. Check the source and repository if you're unsure. The project itself is just a questionable fucking web project, not some dark magic bullshit.
 
-CLICK ME: http://nigai.ct.ws/
+## What This Shit Can Do
 
-🚨 YOUR ANTIVIRUS MIGHT SCREAM "DANGEROUS WEBSITE," BUT RELAX, IT'S JUST MY QUESTIONABLE FUCKING WEB PROJECT. NO HACKING, NO DARK MAGIC. 🚨
+Nigai can send messages to an AI API and display the responses inside a proper chat interface. It supports AI responses, code blocks, copy buttons, new chat, clear chat, loading indicators, and a responsive chat layout. Basically, puwede kang makipag yap sa AI without the interface looking like it was assembled in 2007 gamit ang dalawang div at isang prayer.
 
-The chatbot works. The current focus is making the interface **less bland, bigger, cleaner, and actually fucking nice to look at.**
+## API Dependency
 
-## 🔑 API Dependency
+Nigai relies on a configured **API key** to actually communicate with the AI. No API key means no AI conversation. ПИЗДЕЦ.
 
-Nigai relies on **API keys** to actually communicate with the AI.
-
-No API key = **no AI conversation. ПИЗДЕЦ.**
-
-The chatbot sends requests through the configured API and displays the responses in the interface.
-
-Basically:
+The basic flow is:
 
 **YOU → NIGAI → API → AI → NIGAI → YOU**
 
-Simple shit. **The API does the brain work, I just built the fucking body.**
+The API handles the actual AI processing while Nigai handles the interface and communication between the user and the API. Hindi ako gumawa ng sariling artificial brain dito, thank fucking God.
 
-## 🎨 UI Redesign
+## UI Redesign
 
-The redesign focuses **ONLY on the interface**.
+The project also went through a UI redesign because the chatbot worked, pero yung itsura niya dati parang $3 web project na iniwan noong 2007. The redesign focuses on a cleaner monochrome interface with better typography, spacing, message bubbles, buttons, input areas, borders, panels, and overall screen usage.
 
-* 🖤 Dark mode by default
-* ☀️ Light / Dark mode toggle
-* 🖥️ Better use of available screen space
-* ✍️ Improved typography and spacing
-* 💬 Better message bubbles
-* 🔘 Improved buttons and input area
-* 📦 Cleaner borders and panels
-* 📱 Fully responsive layout
-* 🖥️ Desktop, laptop, tablet, and mobile support
-* 🖥️ Modern developer tool / terminal inspired aesthetic
-* ⚫ Clean monochrome black, white, and gray palette
+It supports a dark interface, light and dark mode, responsive layouts for desktop, laptop, tablet, and mobile, plus a modern developer tool / terminal inspired aesthetic. Walang neon bullshit, walang colorful gradients, walang sobrang glow. Just black, white, gray, and enough personality para hindi mukhang fucking corporate dashboard.
 
-No colorful gradients.
-No neon bullshit.
-No arcade style.
-No excessive glow.
+## Tech Stack
 
-**Just clean UI with some fucking personality. БЛЯТЬ.**
+**PHP, HTML, CSS, JavaScript, and an external AI API.**
 
-## 💬 Chat Features
+No unnecessary frameworks. No dependency hell. Pure fucking web chaos, kept simple.
 
-The existing chatbot functionality stays untouched.
+## In Short
 
-* 💬 Send messages
-* 🤖 AI responses
-* 📋 Code blocks
-* 📎 Copy buttons
-* 🆕 New chat
-* 🧹 Clear chat
-* ⏳ Loading indicators
-* 📱 Responsive chat interface
+A working AI chatbot that got tired of looking like a fucking 2007 project and decided to put on a suit.
 
-**NO FUNCTIONALITY WAS SACRIFICED FOR PRETTY PIXELS.**
-**THE ASCII STAYS. ПИЗДЕЦ.**
-
-## 🛠️ Tech Stack
-
-* PHP
-* HTML
-* CSS
-* JavaScript
-* API based AI chatbot
-
-No unnecessary frameworks. No dependency hell.
-
-**Pure fucking web chaos, kept simple.**
-
-## ☠️ In short
-
-A working (maybe?) AI chatbot that got tired of looking like a **$3 project from 2007** and decided to put on a fucking suit.
-
-**Same brain. Better face. БЛЯТЬ.**
+**Same brain. Better face. ПИЗДЕЦ.**

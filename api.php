@@ -2,45 +2,32 @@
 
 declare(strict_types=1);
 
-header('Content-Type: application/json; charset=utf-8');
+error_reporting(E_ALL);
+ini_set('display_errors', '0');
+
+require __DIR__ . '/includes/http.php';
+require __DIR__ . '/includes/providers.php';
 
 $configPath = __DIR__ . '/config.php';
 
 if (!file_exists($configPath)) {
+    header('Content-Type: application/json; charset=utf-8');
     http_response_code(500);
-    echo json_encode(['error' => 'Server is not configured yet. Copy config.example.php to config.php and add at least one provider API key.']);
+    echo json_encode(['error' => 'NigAI is not configured yet. Add your API keys to config.php.']);
     exit;
 }
 
-$config    = require $configPath;
+$config = require $configPath;
 $providers = $config['providers'] ?? [];
-$maxHist   = (int)($config['max_history_messages'] ?? 20);
+$maxHistory = (int)($config['max_history_messages'] ?? 20);
+$maxMessageLength = (int)($config['max_message_length'] ?? 8000);
+$timeoutSeconds = (int)($config['request_timeout_seconds'] ?? 90);
+$systemPrompt = (string)($config['system_prompt'] ?? '');
+$fallbackAcrossProviders = (bool)($config['fallback_across_providers'] ?? true);
 
-/** Removes empty/placeholder keys and returns a clean list. */
-function usable_keys(array $rawKeys): array
-{
-    return array_values(array_filter(array_map('trim', $rawKeys), function ($k) {
-        return $k !== '' && stripos($k, 'PUT_YOUR') === false;
-    }));
-}
-
-/** Providers that are enabled AND have at least one usable key. */
-function available_providers(array $providers): array
-{
-    $out = [];
-    foreach ($providers as $id => $p) {
-        if (!empty($p['enabled']) && count(usable_keys($p['api_keys'] ?? [])) > 0) {
-            $out[$id] = $p;
-        }
-    }
-    return $out;
-}
-
-// ---------------------------------------------------------
-// GET ?action=meta — safe provider/model list for the UI
-// ---------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'meta') {
-    $available = available_providers($providers);
+    header('Content-Type: application/json; charset=utf-8');
+    $available = nigai_available_providers($providers);
     $list = [];
 
     foreach ($available as $id => $p) {
@@ -49,217 +36,187 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'meta') 
             $models[] = ['id' => $modelId, 'label' => $modelLabel];
         }
         $list[] = [
-            'id'             => $id,
-            'label'          => $p['label'] ?? $id,
-            'models'         => $models,
-            'default_model'  => $p['default_model'] ?? ($models[0]['id'] ?? ''),
+            'id' => $id,
+            'label' => $p['label'] ?? $id,
+            'models' => $models,
+            'default_model' => $p['default_model'] ?? ($models[0]['id'] ?? ''),
         ];
     }
 
-    echo json_encode(['providers' => $list]);
+    echo json_encode(['providers' => $list, 'app_name' => $config['app_name'] ?? 'NigAI']);
     exit;
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
     http_response_code(405);
     echo json_encode(['error' => 'Method not allowed.']);
     exit;
 }
 
-// ---------------------------------------------------------
-// Parse + validate the incoming request
-// ---------------------------------------------------------
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (!is_array($input)) {
+    header('Content-Type: application/json; charset=utf-8');
     http_response_code(400);
     echo json_encode(['error' => 'Invalid request body.']);
     exit;
 }
 
-$providerId = isset($input['provider']) ? (string)$input['provider'] : '';
-$modelId    = isset($input['model']) ? (string)$input['model'] : '';
-$message    = isset($input['message']) ? trim((string)$input['message']) : '';
-$history    = isset($input['history']) && is_array($input['history']) ? $input['history'] : [];
+$requestedProvider = isset($input['provider']) ? (string)$input['provider'] : '';
+$requestedModel = isset($input['model']) ? (string)$input['model'] : '';
+$message = isset($input['message']) ? trim((string)$input['message']) : '';
+$history = isset($input['history']) && is_array($input['history']) ? $input['history'] : [];
+
+header('Content-Type: text/event-stream; charset=utf-8');
+header('Cache-Control: no-cache');
+header('Connection: keep-alive');
+header('X-Accel-Buffering: no');
+
+while (ob_get_level() > 0) {
+    ob_end_flush();
+}
+ob_implicit_flush(true);
+set_time_limit(0);
+
+function nigai_emit(array $payload): void
+{
+    echo 'data: ' . json_encode($payload) . "\n\n";
+    if (function_exists('fastcgi_finish_request') === false) {
+        @ob_flush();
+    }
+    flush();
+}
 
 if ($message === '') {
-    http_response_code(400);
-    echo json_encode(['error' => 'Message cannot be empty.']);
+    nigai_emit(['error' => 'Message cannot be empty.']);
     exit;
 }
-if (mb_strlen($message) > 8000) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Message is too long (max 8000 characters).']);
-    exit;
-}
-
-$available = available_providers($providers);
-
-if (!isset($available[$providerId])) {
-    http_response_code(400);
-    echo json_encode(['error' => 'That provider is not available. Check config.php (enabled + API key).']);
+if (mb_strlen($message) > $maxMessageLength) {
+    nigai_emit(['error' => 'Message is too long (max ' . $maxMessageLength . ' characters).']);
     exit;
 }
 
-$provider = $available[$providerId];
-$models   = $provider['models'] ?? [];
+$available = nigai_available_providers($providers);
 
-if ($modelId === '' || !array_key_exists($modelId, $models)) {
-    $modelId = $provider['default_model'] ?? array_key_first($models);
-}
-if ($modelId === null || !array_key_exists($modelId, $models)) {
-    http_response_code(500);
-    echo json_encode(['error' => 'No valid model configured for ' . ($provider['label'] ?? $providerId) . '.']);
+if (empty($available)) {
+    nigai_emit(['error' => 'No AI providers are configured on the server yet.']);
     exit;
 }
 
-$apiKeys = usable_keys($provider['api_keys'] ?? []);
-$history = array_slice($history, -$maxHist);
-
-// ---------------------------------------------------------
-// Format-specific request builders + response parsers
-// ---------------------------------------------------------
-
-function gemini_request(string $endpointTemplate, string $key, string $model, string $message, array $history, array $genCfg): array
-{
-    $contents = [];
-    foreach ($history as $item) {
-        if (!is_array($item)) continue;
-        $role = ($item['role'] ?? '') === 'model' ? 'model' : 'user';
-        $text = isset($item['text']) ? trim((string)$item['text']) : '';
-        if ($text === '') continue;
-        $contents[] = ['role' => $role, 'parts' => [['text' => mb_substr($text, 0, 8000)]]];
+$providerOrder = [];
+if ($requestedProvider !== '' && isset($available[$requestedProvider])) {
+    $providerOrder[] = $requestedProvider;
+}
+if ($fallbackAcrossProviders || empty($providerOrder)) {
+    foreach ($available as $id => $p) {
+        if (!in_array($id, $providerOrder, true)) {
+            $providerOrder[] = $id;
+        }
     }
-    $contents[] = ['role' => 'user', 'parts' => [['text' => $message]]];
-
-    $payload = ['contents' => $contents];
-    if (!empty($genCfg)) {
-        $payload['generationConfig'] = $genCfg;
-    }
-
-    $url = str_replace(['{model}', '{key}'], [$model, $key], $endpointTemplate);
-
-    return http_post_json($url, [], $payload);
 }
 
-function gemini_extract_reply(array $data): ?string
-{
-    $candidate = $data['candidates'][0] ?? null;
-    if (!$candidate) return null;
+$history = array_slice($history, -$maxHistory);
+$lastInternalError = 'No provider attempt succeeded.';
 
-    $text = '';
-    foreach ($candidate['content']['parts'] ?? [] as $part) {
-        if (isset($part['text'])) $text .= $part['text'];
+foreach ($providerOrder as $providerId) {
+    $provider = $available[$providerId];
+    $models = $provider['models'] ?? [];
+    $format = $provider['format'] ?? 'openai';
+    $label = $provider['label'] ?? $providerId;
+    $supportsStream = $provider['stream'] ?? true;
+
+    $modelId = $requestedModel;
+    if ($modelId === '' || !array_key_exists($modelId, $models)) {
+        $modelId = $provider['default_model'] ?? array_key_first($models);
     }
-    return $text !== '' ? $text : null;
-}
-
-function openai_request(string $endpoint, string $key, string $model, string $message, array $history, array $extraHeaders = []): array
-{
-    $messages = [];
-    foreach ($history as $item) {
-        if (!is_array($item)) continue;
-        $role = ($item['role'] ?? '') === 'model' ? 'assistant' : 'user';
-        $text = isset($item['text']) ? trim((string)$item['text']) : '';
-        if ($text === '') continue;
-        $messages[] = ['role' => $role, 'content' => mb_substr($text, 0, 8000)];
-    }
-    $messages[] = ['role' => 'user', 'content' => $message];
-
-    $payload = ['model' => $model, 'messages' => $messages];
-
-    $headers = ['Authorization: Bearer ' . $key];
-    foreach ($extraHeaders as $name => $value) {
-        if ($value !== '') $headers[] = $name . ': ' . $value;
-    }
-
-    return http_post_json($endpoint, $headers, $payload);
-}
-
-function openai_extract_reply(array $data): ?string
-{
-    $text = $data['choices'][0]['message']['content'] ?? null;
-    return ($text !== null && $text !== '') ? $text : null;
-}
-
-/** Performs the POST and returns [httpCode, decodedBody, curlErrorOrNull]. */
-function http_post_json(string $url, array $headers, array $payload): array
-{
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST           => true,
-        CURLOPT_HTTPHEADER     => array_merge(['Content-Type: application/json'], $headers),
-        CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_TIMEOUT        => 60,
-    ]);
-
-    $response  = curl_exec($ch);
-    $curlError = curl_error($ch);
-    $httpCode  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($response === false) {
-        return [0, null, $curlError ?: 'Could not reach the provider.'];
-    }
-
-    return [$httpCode, json_decode($response, true), null];
-}
-
-// ---------------------------------------------------------
-// Try each key for the selected provider until one works
-// ---------------------------------------------------------
-$format   = $provider['format'] ?? 'openai';
-$label    = $provider['label'] ?? $providerId;
-$lastError = 'Unknown error.';
-
-foreach ($apiKeys as $key) {
-
-    if ($format === 'gemini') {
-        [$httpCode, $data, $networkError] = gemini_request(
-            $provider['endpoint'], $key, $modelId, $message, $history, $provider['generation_config'] ?? []
-        );
-    } else {
-        [$httpCode, $data, $networkError] = openai_request(
-            $provider['endpoint'], $key, $modelId, $message, $history, $provider['extra_headers'] ?? []
-        );
-    }
-
-    if ($networkError !== null) {
-        $lastError = $networkError;
+    if ($modelId === null) {
         continue;
     }
 
-    if ($httpCode === 200 && is_array($data)) {
-        $reply = $format === 'gemini' ? gemini_extract_reply($data) : openai_extract_reply($data);
+    $apiKeys = nigai_usable_keys($provider['api_keys'] ?? []);
 
-        if ($reply === null) {
-            $reason = $data['candidates'][0]['finishReason'] ?? 'unknown';
-            echo json_encode(['error' => "$label returned an empty response (reason: $reason). Try rephrasing your message."]);
+    foreach ($apiKeys as $key) {
+
+        $emitAndForward = function (string $text) {
+            nigai_emit(['text' => $text]);
+        };
+
+        if ($supportsStream) {
+            $buffer = '';
+
+            if ($format === 'gemini') {
+                $url = nigai_gemini_url($provider['stream_endpoint'] ?? $provider['endpoint'], $modelId, $key);
+                $payload = nigai_gemini_payload($history, $message, $provider['generation_config'] ?? [], $systemPrompt, $maxMessageLength);
+                [$httpCode, $errData, $netErr] = nigai_http_stream($url, [], $payload, function (string $chunk) use (&$buffer, $emitAndForward) {
+                    nigai_gemini_stream_chunk($chunk, $buffer, $emitAndForward);
+                }, $timeoutSeconds);
+            } else {
+                $url = $provider['endpoint'];
+                $payload = nigai_openai_payload($history, $message, $modelId, $systemPrompt, $maxMessageLength, true);
+                $headers = nigai_openai_headers($key, $provider['extra_headers'] ?? []);
+                [$httpCode, $errData, $netErr] = nigai_http_stream($url, $headers, $payload, function (string $chunk) use (&$buffer, $emitAndForward) {
+                    nigai_openai_stream_chunk($chunk, $buffer, $emitAndForward);
+                }, $timeoutSeconds);
+            }
+
+            if ($netErr !== null) {
+                $lastInternalError = $netErr;
+                continue;
+            }
+
+            if ($httpCode >= 200 && $httpCode < 300) {
+                nigai_emit(['done' => true, 'provider' => $label, 'model' => $modelId]);
+                exit;
+            }
+
+            if (nigai_is_retryable_error($httpCode, $errData)) {
+                $lastInternalError = nigai_extract_error_message($errData, $httpCode);
+                continue;
+            }
+
+            error_log('NigAI: ' . $label . ' hard failure: ' . nigai_extract_error_message($errData, $httpCode));
+            nigai_emit(['error' => nigai_friendly_error_message($label, $httpCode, $errData)]);
             exit;
         }
 
-        echo json_encode(['reply' => $reply, 'provider' => $label, 'model' => $modelId]);
+        if ($format === 'gemini') {
+            $url = nigai_gemini_url($provider['endpoint'], $modelId, $key);
+            $payload = nigai_gemini_payload($history, $message, $provider['generation_config'] ?? [], $systemPrompt, $maxMessageLength);
+            [$httpCode, $data, $netErr] = nigai_http_collect($url, [], $payload, $timeoutSeconds);
+        } else {
+            $url = $provider['endpoint'];
+            $payload = nigai_openai_payload($history, $message, $modelId, $systemPrompt, $maxMessageLength, false);
+            $headers = nigai_openai_headers($key, $provider['extra_headers'] ?? []);
+            [$httpCode, $data, $netErr] = nigai_http_collect($url, $headers, $payload, $timeoutSeconds);
+        }
+
+        if ($netErr !== null) {
+            $lastInternalError = $netErr;
+            continue;
+        }
+
+        if ($httpCode === 200 && is_array($data)) {
+            $reply = $format === 'gemini' ? nigai_gemini_extract_reply($data) : nigai_openai_extract_reply($data);
+            if ($reply === null) {
+                $lastInternalError = $label . ' returned an empty response.';
+                continue;
+            }
+            nigai_emit(['text' => $reply]);
+            nigai_emit(['done' => true, 'provider' => $label, 'model' => $modelId]);
+            exit;
+        }
+
+        if (nigai_is_retryable_error($httpCode, $data)) {
+            $lastInternalError = nigai_extract_error_message($data, $httpCode);
+            continue;
+        }
+
+        error_log('NigAI: ' . $label . ' hard failure: ' . nigai_extract_error_message($data, $httpCode));
+        nigai_emit(['error' => nigai_friendly_error_message($label, $httpCode, $data)]);
         exit;
     }
-
-    $errMessage = $data['error']['message'] ?? $data['error'] ?? ('HTTP ' . $httpCode);
-    $errMessage = is_array($errMessage) ? json_encode($errMessage) : (string)$errMessage;
-    $errStatus  = is_array($data['error'] ?? null) ? ($data['error']['status'] ?? '') : '';
-
-    $isRateLimitOrQuota = $httpCode === 429 || stripos((string)$errStatus, 'RESOURCE_EXHAUSTED') !== false;
-    $isAuthProblem      = in_array($httpCode, [401, 403], true);
-
-    if ($isRateLimitOrQuota || $isAuthProblem) {
-        $lastError = $errMessage;
-        continue; // try the next key for this same provider
-    }
-
-    // Any other error (bad request, invalid model, safety block, etc.) — retrying won't help.
-    http_response_code($httpCode >= 400 ? $httpCode : 500);
-    echo json_encode(['error' => "$label error: $errMessage"]);
-    exit;
 }
 
-http_response_code(503);
-echo json_encode(['error' => "All configured $label API keys are rate-limited, out of quota, or invalid. Last error: $lastError"]);
+error_log('NigAI: all providers exhausted, last reason: ' . $lastInternalError);
+nigai_emit(['error' => 'NigAI is temporarily unavailable. Please try again in a moment.']);
