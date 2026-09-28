@@ -2,7 +2,7 @@
 
 A fucking AI chatbot built with **PHP, HTML, CSS, and JavaScript**. Ginawa ko 'to kasi apparently hindi sapat na gumagamit lang ako ng AI, kailangan gumawa pa ako ng sarili kong AI chatbot like a fucking genius. The actual chatbot connects to an external AI API, sends messages through the configured API, then displays the AI responses back in the interface. Basically: **YOU → NIGAI → API → AI → NIGAI → YOU.** Yung API ang bahala sa brain work, ako ang gumawa ng katawan. Simple shit.
 
-**Project Status:** ACTIVE / STILL ALIVE BUT ABANDONED
+**Project Status:** ACTIVE / STILL ALIVE
 
 **CLICK ME:** http://nigai.ct.ws/
 
